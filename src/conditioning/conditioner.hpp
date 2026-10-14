@@ -1992,8 +1992,8 @@ struct LLMEmbedder : public Conditioner {
             if (sd_version_is_lens(version)) {
                 throw std::runtime_error("Lens requires an external GPT-OSS tokenizer.json; pass --tokenizer FILE or set sd_ctx_params_t::tokenizer");
             }
-            if (sd_version_is_pid(version)) {
-                throw std::runtime_error("PiD requires an external Gemma 2 tokenizer.json; pass --tokenizer FILE or set sd_ctx_params_t::tokenizer");
+            if (sd_version_is_pid(version) || sd_version_is_sana_sprint(version)) {
+                throw std::runtime_error("PiD and Sana Sprint require an external Gemma 2 tokenizer.json; pass --tokenizer FILE or set sd_ctx_params_t::tokenizer");
             }
         }
         LLM::LLMArch arch = LLM::LLMArch::QWEN2_5_VL;
@@ -2003,7 +2003,7 @@ struct LLMEmbedder : public Conditioner {
             arch = LLM::LLMArch::MINISTRAL_3_3B;
         } else if (sd_version_is_lens(version)) {
             arch = LLM::LLMArch::GPT_OSS_20B;
-        } else if (sd_version_is_pid(version)) {
+        } else if (sd_version_is_pid(version) || sd_version_is_sana_sprint(version)) {
             arch = LLM::LLMArch::GEMMA2_2B;
         } else if (version == VERSION_QWEN_IMAGE_2_1 ||
                    sd_version_is_lingbot_video(version) ||
@@ -3060,6 +3060,39 @@ struct LLMEmbedder : public Conditioner {
             prompt_attn_range.second = static_cast<int>(prompt.size());
 
             prompt += "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+        } else if (sd_version_is_sana_sprint(version)) {
+            const std::string instruction =
+                "Given a user prompt, generate an 'Enhanced prompt' that provides detailed visual descriptions suitable for image generation. Evaluate the level of detail in the user prompt:\n"
+                "- If the prompt is simple, focus on adding specifics about colors, shapes, sizes, textures, and spatial relationships to create vivid and concrete scenes.\n"
+                "- If the prompt is already detailed, refine and enhance the existing details slightly without overcomplicating.\n"
+                "Here are examples of how to transform or refine prompts:\n"
+                "- User Prompt: A cat sleeping -> Enhanced: A small, fluffy white cat curled up in a round shape, sleeping peacefully on a warm sunny windowsill, surrounded by pots of blooming red flowers.\n"
+                "- User Prompt: A busy city street -> Enhanced: A bustling city street scene at dusk, featuring glowing street lamps, a diverse crowd of people in colorful clothing, and a double-decker bus passing by towering glass skyscrapers.\n"
+                "Please generate only the enhanced description for the prompt below and avoid including any additional commentary or evaluations:\n"
+                "User Prompt: ";
+            auto prefix_tokens = std::get<0>(tokenize(instruction, {0, 0}));
+            if (prefix_tokens.empty()) {
+                return {};
+            }
+            const int length    = static_cast<int>(prefix_tokens.size()) + 300 - 2;
+            std::string caption = trim(conditioner_params.text);
+            std::transform(caption.begin(), caption.end(), caption.begin(), [](unsigned char c) { return std::tolower(c); });
+            auto hidden = encode_prompt(n_threads, instruction + caption, {0, 0}, length, 0,
+                                        {}, {}, 0, false, length, {}, {}, "", &text_mask);
+            if (hidden.empty()) {
+                return {};
+            }
+            auto bos  = sd::ops::slice(hidden, 1, 0, 1);
+            auto tail = sd::ops::slice(hidden, 1, hidden.shape()[1] - 299, hidden.shape()[1]);
+            SDCondition result;
+            result.c_crossattn = sd::ops::concat(bos, tail, 1);
+            auto mask_bos      = sd::ops::slice(text_mask, 0, 0, 1);
+            auto mask_tail     = sd::ops::slice(text_mask, 0, text_mask.shape()[0] - 299, text_mask.shape()[0]);
+            result.c_vector    = sd::ops::concat(mask_bos, mask_tail, 0);
+            for (int64_t i = 0; i < result.c_vector.numel(); ++i) {
+                result.c_vector[i] = (1.f - result.c_vector[i]) * -10000.f;
+            }
+            return result;
         } else if (sd_version_is_pid(version)) {
             constexpr int pixeldit_max_length = 300;
             const std::string chi_prompt =

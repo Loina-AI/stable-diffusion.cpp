@@ -196,6 +196,17 @@ std::string convert_cond_stage_model_name(std::string name, std::string prefix, 
         if (contains(name, "llm.visual")) {
             replace_with_name_map(name, llm_vision_name_map);
         } else {
+            if (sd_version_is_sana_sprint(version) || sd_version_is_pid(version)) {
+                static const std::vector<std::pair<std::string, std::string>> gemma2_norm_map = {
+                    {"attn_post_norm.", "post_attention_layernorm."},
+                    {"post_attention_norm.", "post_attention_layernorm."},
+                    {"ffn_pre_norm.", "pre_feedforward_layernorm."},
+                    {"ffn_norm.", "pre_feedforward_layernorm."},
+                    {"ffn_post_norm.", "post_feedforward_layernorm."},
+                    {"post_ffw_norm.", "post_feedforward_layernorm."},
+                };
+                replace_with_name_map(name, gemma2_norm_map);
+            }
             replace_with_name_map(name, llm_name_map);
             name = convert_llada2_moe_te_name(name);
         }
@@ -1241,7 +1252,7 @@ std::string convert_diffusers_to_original_wan_vae(std::string name, bool qwen_im
 }
 
 std::string convert_first_stage_model_name(std::string name, std::string prefix, SDVersion version) {
-    if (sd_version_is_hunyuan_video(version) || sd_version_is_mage_flow(version) || sd_version_is_minimax_h3(version)) {
+    if (sd_version_is_hunyuan_video(version) || sd_version_is_mage_flow(version) || sd_version_is_minimax_h3(version) || sd_version_is_sana_sprint(version)) {
         return name;
     }
     if (sd_version_uses_wan_vae(version)) {
@@ -1629,6 +1640,9 @@ std::string convert_tensor_name(std::string name, SDVersion version) {
         }
     }
 
+    if (sd_version_is_sana_sprint(version) && starts_with(name, "vae.first_stage_model.")) {
+        name = name.substr(4);
+    }
     std::unordered_map<std::string, std::string> prefix_map = {
         {"diffusion_model.", "model.diffusion_model."},
         {"unet.", "model.diffusion_model."},

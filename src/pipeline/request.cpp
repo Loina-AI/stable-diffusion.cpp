@@ -32,6 +32,7 @@ namespace sd::pipeline {
         "DPM++ (2M) SDE",
         "DPM++ (2M) SDE BT",
         "LMS",
+        "SCM",
     };
 
     static_assert(SAMPLE_METHOD_COUNT == sizeof(sampling_methods_str) / sizeof(sampling_methods_str[0]),
@@ -44,6 +45,9 @@ namespace sd::pipeline {
 
     enum sample_method_t default_sample_method(const StableDiffusionGGML* sd) {
         if (sd != nullptr) {
+            if (sd_version_is_sana_sprint(sd->version)) {
+                return SCM_SAMPLE_METHOD;
+            }
             if (sd_version_is_pid(sd->version)) {
                 return LCM_SAMPLE_METHOD;
             }
@@ -282,6 +286,11 @@ namespace sd::pipeline {
         GGML_ASSERT(guidance != nullptr);
         GGML_ASSERT(use_uncond != nullptr);
         GGML_ASSERT(use_img_uncond != nullptr);
+        if (sd_version_is_sana_sprint(sd->version)) {
+            guidance->txt_cfg = guidance->img_cfg = 1.f;
+            *use_uncond = *use_img_uncond = false;
+            return;
+        }
         // out_img_uncond + text_cfg_scale * (out_cond - out_uncond) + image_cfg_scale * (out_uncond - out_img_uncond)
         // -> text_cfg_scale * out_cond + (image_cfg_scale - text_cfg_scale) * out_uncond + (1 - image_cfg_scale) * out_img_uncond
         // out_cond       : prompt, image latent

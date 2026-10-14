@@ -87,7 +87,10 @@ bool read_gguf_file(const std::string& file_path,
         return true;
     }
 
-    int n_tensors = static_cast<int>(gguf_get_n_tensors(ctx_gguf_));
+    int n_tensors          = static_cast<int>(gguf_get_n_tensors(ctx_gguf_));
+    const int64_t arch_key = gguf_find_key(ctx_gguf_, "general.architecture");
+    const bool gemma2      = arch_key >= 0 && gguf_get_kv_type(ctx_gguf_, arch_key) == GGUF_TYPE_STRING &&
+                             std::string(gguf_get_val_str(ctx_gguf_, arch_key)) == "gemma2";
 
     size_t data_offset = gguf_get_data_offset(ctx_gguf_);
     for (int i = 0; i < n_tensors; i++) {
@@ -96,6 +99,7 @@ bool read_gguf_file(const std::string& file_path,
         size_t offset      = data_offset + gguf_get_tensor_offset(ctx_gguf_, i);
 
         TensorStorage tensor_storage(name, dummy->type, dummy->ne, ggml_n_dims(dummy), 0, offset);
+        tensor_storage.is_gemma_norm_shifted = gemma2 && ends_with(name, "norm.weight");
 
         if (ggml_nbytes(dummy) != tensor_storage.nbytes()) {
             gguf_free(ctx_gguf_);

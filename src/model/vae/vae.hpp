@@ -174,7 +174,7 @@ public:
 
     int get_scale_factor() {
         int scale_factor = 8;
-        if (version == VERSION_LTXAV) {
+        if (version == VERSION_LTXAV || sd_version_is_sana_sprint(version)) {
             scale_factor = 32;
         } else if (version == VERSION_WAN2_2_TI2V ||
                    version == VERSION_QWEN_IMAGE_2_1 ||

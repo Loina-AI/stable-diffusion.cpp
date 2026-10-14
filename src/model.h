@@ -66,6 +66,7 @@ enum SDVersion {
     VERSION_MING_IMAGE,
     VERSION_Z_IMAGE_L2P,
     VERSION_IRIS,
+    VERSION_SANA_SPRINT,
     VERSION_COUNT,
 };
 
@@ -264,6 +265,10 @@ static inline bool sd_version_is_pixart(SDVersion version) {
     return version == VERSION_PIXART;
 }
 
+static inline bool sd_version_is_sana_sprint(SDVersion version) {
+    return version == VERSION_SANA_SPRINT;
+}
+
 static inline bool sd_version_supports_video_generation(SDVersion version) {
     return version == VERSION_SVD || sd_version_is_wan(version) || sd_version_is_hunyuan_video(version) || sd_version_is_lingbot_video(version) || sd_version_is_ltxav(version) || sd_version_is_minimax_h3(version);
 }
@@ -336,6 +341,7 @@ static inline bool sd_version_is_dit(SDVersion version) {
         sd_version_is_mage_flow(version) ||
         sd_version_is_sensenova_u1(version) ||
         sd_version_is_pixart(version) ||
+        sd_version_is_sana_sprint(version) ||
         version == VERSION_IRIS) {
         return true;
     }

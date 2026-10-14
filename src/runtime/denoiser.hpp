@@ -1206,6 +1206,60 @@ struct Denoiser {
     }
 };
 
+struct SanaSprintDenoiser : public Denoiser {
+    static constexpr float sigma_data = 0.5f;
+
+    float sigma_min() override { return 0.f; }
+    float sigma_max() override { return 1.57080f; }
+
+    float sigma_to_t(float sigma) override {
+        return sinf(sigma) / (cosf(sigma) + sinf(sigma));
+    }
+
+    float t_to_sigma(float t) override { return atan2f(t, 1.f - t); }
+    float noise_level_to_sigma(float noise_level) override { return noise_level * sigma_max(); }
+
+    std::vector<float> get_scalings(float sigma) override {
+        const float t     = sigma_to_t(sigma);
+        const float scale = sqrtf(t * t + (1.f - t) * (1.f - t));
+        return {cosf(sigma) - sinf(sigma) * (1.f - 2.f * t), -sigma_data * sinf(sigma) * scale, scale / sigma_data};
+    }
+
+    sd::Tensor<float> noise_scaling(float sigma, const sd::Tensor<float>& noise, const sd::Tensor<float>& latent) override {
+        return latent * cosf(sigma) + noise * (sigma_data * sinf(sigma));
+    }
+
+    sd::Tensor<float> inverse_noise_scaling(float, const sd::Tensor<float>& latent) override { return latent; }
+
+    std::vector<float> get_sigmas(uint32_t n, int, scheduler_t, SDVersion, const char* extra_sample_args = nullptr) override {
+        float maximum      = sigma_max();
+        float intermediate = 1.3f;
+        for (const auto& [key, value] : parse_key_value_args(extra_sample_args, "sana sprint scheduler arg")) {
+            if (key != "sana_max_timestep" && key != "sana_intermediate_timestep") {
+                continue;
+            }
+            float parsed = 0.f;
+            if (!parse_strict_float(value, parsed) || !std::isfinite(parsed) || parsed <= 0.f || parsed > sigma_max()) {
+                LOG_WARN("ignoring invalid Sana Sprint scheduler arg '%s=%s'", key.c_str(), value.c_str());
+                continue;
+            }
+            (key == "sana_max_timestep" ? maximum : intermediate) = parsed;
+        }
+        if (n == 0) {
+            return {};
+        }
+        if (n == 2 && intermediate < maximum) {
+            return {maximum, intermediate, 0.f};
+        }
+        std::vector<float> sigmas(n + 1);
+        for (uint32_t i = 0; i < n; ++i) {
+            sigmas[i] = maximum * (1.f - static_cast<float>(i) / n);
+        }
+        sigmas[n] = 0.f;
+        return sigmas;
+    }
+};
+
 struct CompVisDenoiser : public Denoiser {
     float sigmas[TIMESTEPS];
     float log_sigmas[TIMESTEPS];
@@ -3054,6 +3108,25 @@ static sd::Tensor<float> sample_k_diffusion(sample_method_t method,
                                             const char* extra_sample_args,
                                             std::shared_ptr<Denoiser> denoiser_for_dispatch = nullptr) {
     if (denoiser_for_dispatch) {
+        if (std::dynamic_pointer_cast<SanaSprintDenoiser>(denoiser_for_dispatch)) {
+            if (method != SCM_SAMPLE_METHOD) {
+                LOG_ERROR("Sana Sprint requires the scm sampler");
+                return {};
+            }
+            for (size_t i = 0; i + 1 < sigmas.size(); ++i) {
+                auto denoised = model(x, sigmas[i], static_cast<int>(i + 1)).pred;
+                if (denoised.empty()) {
+                    return {};
+                }
+                const float next = sigmas[i + 1];
+                x                = denoised * cosf(next);
+                if (next != 0.f) {
+                    auto noise = sd::Tensor<float>::randn(x.shape(), rng);
+                    x += noise * (SanaSprintDenoiser::sigma_data * sinf(next));
+                }
+            }
+            return x;
+        }
         if (auto sefi = std::dynamic_pointer_cast<SefiFlowDenoiser>(denoiser_for_dispatch)) {
             return sample_sefi_euler(sefi.get(), model, std::move(x));
         }

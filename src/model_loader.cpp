@@ -453,8 +453,16 @@ SDVersion ModelLoader::get_sd_version() const {
     bool has_output_block_311        = false;
     bool has_output_block_71         = false;
     bool has_attn_1024               = false;
+    bool has_dc_ae_decoder           = false;
 
     for (auto& [name, tensor_storage] : tensor_storage_map) {
+        if (contains(name, "decoder.up_blocks.5.0.attn.to_qkv_multiscale.0.proj_in.weight")) {
+            has_dc_ae_decoder = true;
+        }
+        if (name == "model.diffusion_model.time_embed.guidance_embedder.linear_1.weight" &&
+            tensor_storage_map.count("model.diffusion_model.transformer_blocks.0.ff.conv_depth.weight") != 0) {
+            return VERSION_SANA_SPRINT;
+        }
         if (tensor_storage.name.find("model.diffusion_model.double_blocks.") != std::string::npos ||
             tensor_storage.name.find("model.diffusion_model.single_transformer_blocks.") != std::string::npos) {
             is_flux = true;
@@ -707,7 +715,7 @@ SDVersion ModelLoader::get_sd_version() const {
         }
         return VERSION_SD2;
     }
-    return VERSION_COUNT;
+    return has_dc_ae_decoder ? VERSION_SANA_SPRINT : VERSION_COUNT;
 }
 
 std::map<ggml_type, uint32_t> ModelLoader::get_wtype_stat() const {

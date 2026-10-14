@@ -111,6 +111,7 @@ const char* model_version_to_str[] = {
     "Ming-Image",
     "Z-Image L2P",
     "Iris-3B",
+    "Sana Sprint",
 };
 
 static_assert(VERSION_COUNT == sizeof(model_version_to_str) / sizeof(model_version_to_str[0]),
@@ -1459,6 +1460,12 @@ bool StableDiffusionGGML::build_denoiser() {
     default_flow_shift             = INFINITY;
     prediction_t pred_type         = sd_ctx_params->prediction;
 
+    if (sd_version_is_sana_sprint(version)) {
+        LOG_INFO("running Sana Sprint with the SCM trigflow sampler");
+        denoiser = std::make_shared<SanaSprintDenoiser>();
+        return true;
+    }
+
     if (pred_type == PREDICTION_COUNT) {
         if (sd_version_is_sd2(version)) {
             pred_type = is_using_v_parameterization_for_sd2(sd_version_is_inpaint(version)) ? V_PRED : EPS_PRED;
@@ -2631,7 +2638,7 @@ sd::Tensor<float> StableDiffusionGGML::sample(const std::shared_ptr<DiffusionMod
                 diffusion_params.extra = unet_extra;
             } else if (sd_version_is_sd3(version)) {
                 diffusion_params.extra = SkipLayerDiffusionExtra{local_skip_layers};
-            } else if (sd_version_is_flux(version) || sd_version_is_flux2(version) || sd_version_is_longcat(version) || sd_version_is_sefi_image(version)) {
+            } else if (sd_version_is_flux(version) || sd_version_is_flux2(version) || sd_version_is_longcat(version) || sd_version_is_sefi_image(version) || sd_version_is_sana_sprint(version)) {
                 diffusion_params.extra = FluxDiffusionExtra{&guidance_tensor,
                                                             local_skip_layers};
             } else if (version == VERSION_QWEN_IMAGE_2_1) {
@@ -2994,7 +3001,7 @@ int StableDiffusionGGML::get_latent_channel() {
             latent_channel = 64;
         } else if (version == VERSION_WAN2_2_TI2V) {
             latent_channel = 48;
-        } else if (sd_version_is_hunyuan_video(version)) {
+        } else if (sd_version_is_hunyuan_video(version) || sd_version_is_sana_sprint(version)) {
             latent_channel = 32;
         } else if (version == VERSION_HIDREAM_O1) {
             latent_channel = 3;

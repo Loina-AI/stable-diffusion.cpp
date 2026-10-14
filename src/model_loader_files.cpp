@@ -63,8 +63,27 @@ void ModelLoader::rebuild_catalog() {
             if (file.scope == FileScope::Isolated)
                 continue;
             for (const auto& entry : file.tensors) {
-                TensorStorage tensor            = entry.second;
-                tensor.name                     = convert_tensor_name(tensor.name, version);
+                TensorStorage tensor = entry.second;
+                tensor.name          = convert_tensor_name(tensor.name, version);
+                if (sd_version_is_sana_sprint(version) && tensor.n_dims == 4 &&
+                    tensor.ne[0] == 1 && tensor.ne[1] == 1 &&
+                    (ends_with(tensor.name, ".conv_inverted.weight") ||
+                     ends_with(tensor.name, ".conv_point.weight") ||
+                     tensor.name == "model.diffusion_model.patch_embed.proj.weight")) {
+                    tensor.ne[0] = tensor.ne[2];
+                    tensor.ne[1] = tensor.ne[3];
+                    tensor.ne[2] = tensor.ne[3] = 1;
+                    tensor.n_dims               = 2;
+                }
+                if (sd_version_is_sana_sprint(version) && tensor.n_dims == 4 &&
+                    tensor.ne[0] == 1 && tensor.ne[1] == 1 &&
+                    contains(tensor.name, ".attn.to_qkv_multiscale.") && ends_with(tensor.name, ".proj_out.weight")) {
+                    const int64_t dim = tensor.ne[2];
+                    tensor.ne[0] = tensor.ne[1] = dim;
+                    tensor.ne[2]                = tensor.ne[3] / dim;
+                    tensor.ne[3]                = 1;
+                    tensor.n_dims               = 3;
+                }
                 tensor_storage_map[tensor.name] = std::move(tensor);
             }
         }

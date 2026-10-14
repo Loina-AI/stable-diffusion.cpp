@@ -132,7 +132,21 @@ namespace sd::pipeline {
         if (sd_img_gen_params->init_image.data != nullptr) {
             LOG_INFO("IMG2IMG");
 
-            if (request->strength < 1.f) {
+            if (sd_version_is_sana_sprint(sd->version) && request->strength < 1.f) {
+                // Sprint has very few steps: choose a continuous starting angle rather than rounding away strength.
+                const float start = plan->sigmas.front() * request->strength;
+                std::vector<float> sigmas{start};
+                for (float sigma : plan->sigmas) {
+                    if (sigma < start) {
+                        sigmas.push_back(sigma);
+                    }
+                }
+                if (sigmas.back() != 0.f) {
+                    sigmas.push_back(0.f);
+                }
+                plan->sigmas       = std::move(sigmas);
+                plan->sample_steps = static_cast<int>(plan->sigmas.size() - 1);
+            } else if (request->strength < 1.f) {
                 bool strength_as_noise_level = false;
                 bool force_first_sigma       = false;
                 for (const auto& [key, value] : parse_key_value_args(sd_img_gen_params->sample_params.extra_sample_args, "img2img arg")) {
@@ -812,6 +826,36 @@ namespace sd::pipeline {
         sd_img_gen_params = &processed_params;
         request.pm_params = processed_params.pm_params;
         LOG_INFO("generate_image %dx%d", request.width, request.height);
+
+        if (sd_version_is_sana_sprint(sd->version) && sd_img_gen_params->init_image.data) {
+            if (!std::isfinite(request.strength) || request.strength < 0.f || request.strength > 1.f) {
+                LOG_ERROR("Sana img2img strength must be between 0 and 1");
+                return false;
+            }
+            if (request.strength == 0.f) {
+                auto result = static_cast<sd_image_t*>(calloc(request.batch_count, sizeof(sd_image_t)));
+                if (!result) {
+                    return false;
+                }
+                auto image = ensure_image_tensor_channels(sd_image_to_tensor(sd_img_gen_params->init_image, request.width, request.height), sd->get_image_channels());
+                for (int i = 0; i < request.batch_count; ++i) {
+                    result[i] = tensor_to_sd_image(image);
+                    if (!result[i].data) {
+                        free_sd_images(result, request.batch_count);
+                        return false;
+                    }
+                }
+                if (images_out) {
+                    *images_out = result;
+                } else {
+                    free_sd_images(result, request.batch_count);
+                }
+                if (num_images_out) {
+                    *num_images_out = request.batch_count;
+                }
+                return true;
+            }
+        }
 
         sd->rng->manual_seed(request.seed);
         sd->sampler_rng->manual_seed(request.seed);

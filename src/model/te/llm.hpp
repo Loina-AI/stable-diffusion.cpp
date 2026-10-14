@@ -229,6 +229,7 @@ namespace LLM {
                 config.intermediate_size       = 9216;
                 config.num_layers              = 26;
                 config.vocab_size              = 256000;
+                config.sliding_attention       = {4096, 0};
             } else if (arch == LLMArch::LLADA2_MOE || arch == LLMArch::BAILING_MOE) {
                 config.head_dim                = 128;
                 config.num_heads               = 16;
@@ -418,6 +419,11 @@ namespace LLM {
                          std::string prefix                             = "") override {
             this->prefix     = prefix;
             params["weight"] = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, hidden_size);
+            auto it          = tensor_storage_map.find(prefix + "weight");
+            if (it != tensor_storage_map.end() && it->second.is_gemma_norm_shifted) {
+                // llama.cpp folds Gemma's unit offset into the stored normalization weights.
+                add_unit_offset = false;
+            }
         }
 
     public:
@@ -1711,19 +1717,26 @@ namespace LLM {
             k = ggml_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, k, 0, 2, 1, 3));  // [N, num_kv_heads, n_token, head_dim]
             k = ggml_reshape_3d(ctx->ggml_ctx, k, k->ne[0], k->ne[1], k->ne[2] * k->ne[3]);      // [N*num_kv_heads, n_token, head_dim]
 
-            if (arch == LLMArch::GPT_OSS_20B) {
-                GGML_ASSERT(N == 1);
+            if (arch == LLMArch::GPT_OSS_20B || arch == LLMArch::GEMMA2_2B) {
+                if (arch == LLMArch::GPT_OSS_20B) {
+                    GGML_ASSERT(N == 1);
+                }
                 auto v_attn = ggml_ext_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, v, 1, 2, 0, 3));  // [N, kv_heads, head_dim, tokens]
                 v_attn      = ggml_reshape_3d(ctx->ggml_ctx, v_attn, n_token, head_dim, num_kv_heads * N);
 
                 auto kq = ggml_mul_mat(ctx->ggml_ctx, k, q);
                 ggml_prec_set_acc(kq, GGML_PREC_F32);
                 kq = ggml_scale_inplace(ctx->ggml_ctx, kq, 1.0f / std::sqrt(static_cast<float>(head_dim)));
+                if (arch == LLMArch::GEMMA2_2B) {
+                    kq = ggml_scale(ctx->ggml_ctx, ggml_tanh(ctx->ggml_ctx, ggml_scale(ctx->ggml_ctx, kq, 1.f / 50.f)), 50.f);
+                }
                 if (attention_mask != nullptr) {
                     kq = ggml_add_inplace(ctx->ggml_ctx, kq, attention_mask);
                 }
                 kq = ggml_soft_max_inplace(ctx->ggml_ctx, kq);
-                ggml_soft_max_add_sinks(kq, params["sinks"]);
+                if (arch == LLMArch::GPT_OSS_20B) {
+                    ggml_soft_max_add_sinks(kq, params["sinks"]);
+                }
 
                 auto kqv = ggml_mul_mat(ctx->ggml_ctx, v_attn, kq);
                 kqv      = ggml_reshape_4d(ctx->ggml_ctx, kqv, head_dim, n_token, num_heads, N);
@@ -1826,7 +1839,7 @@ namespace LLM {
             }
             ggml_tensor* block_attention_mask = attention_mask;
             int rope_index                    = 0;
-            if ((arch == LLMArch::GEMMA3_12B || arch == LLMArch::GEMMA4_12B || arch == LLMArch::GPT_OSS_20B) && sliding_attention > 0) {
+            if ((arch == LLMArch::GEMMA3_12B || arch == LLMArch::GEMMA4_12B || arch == LLMArch::GEMMA2_2B || arch == LLMArch::GPT_OSS_20B) && sliding_attention > 0) {
                 block_attention_mask = sliding_attention_mask;
                 rope_index           = 1;
             }
@@ -2427,7 +2440,7 @@ namespace LLM {
                 set_backend_tensor_data(attention_mask, attention_mask_vec.data());
             }
 
-            if (config.arch == LLMArch::GEMMA3_12B || config.arch == LLMArch::GEMMA4_12B || config.arch == LLMArch::GPT_OSS_20B) {
+            if (config.arch == LLMArch::GEMMA3_12B || config.arch == LLMArch::GEMMA4_12B || config.arch == LLMArch::GEMMA2_2B || config.arch == LLMArch::GPT_OSS_20B) {
                 int sliding_window = 0;
                 for (int window : config.sliding_attention) {
                     sliding_window = std::max(sliding_window, window);

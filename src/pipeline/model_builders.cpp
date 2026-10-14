@@ -34,12 +34,14 @@
 #include "model/diffusion/pixart.hpp"
 #include "model/diffusion/qwen_image.hpp"
 #include "model/diffusion/qwen_image_2_1.hpp"
+#include "model/diffusion/sana.hpp"
 #include "model/diffusion/sensenova_u1.h"
 #include "model/diffusion/unet.hpp"
 #include "model/diffusion/wan.hpp"
 #include "model/diffusion/z_image.hpp"
 #include "model/diffusion/z_image_l2p.hpp"
 #include "model/vae/auto_encoder_kl.hpp"
+#include "model/vae/dc_ae.hpp"
 #include "model/vae/hunyuan_vae.hpp"
 #include "model/vae/ltx_audio_vae.hpp"
 #include "model/vae/ltx_vae.hpp"
@@ -101,6 +103,11 @@ namespace sd::model_builders {
                                                              tensor_storage_map,
                                                              "model.diffusion_model",
                                                              weight_manager);
+        } else if (sd_version_is_sana_sprint(version)) {
+            result.conditioner = std::make_shared<LLMEmbedder>(ctx.backends.runtime_backend(SDBackendModule::TE),
+                                                               tensor_storage_map, version, "", false, weight_manager, tokenizers);
+            result.diffusion   = std::make_shared<Sana::SanaRunner>(ctx.backends.runtime_backend(SDBackendModule::DIFFUSION),
+                                                                    tensor_storage_map, "model.diffusion_model", weight_manager);
         } else if (sd_version_is_pid(version)) {
             result.conditioner = std::make_shared<LLMEmbedder>(ctx.backends.runtime_backend(SDBackendModule::TE),
                                                                tensor_storage_map,
@@ -559,7 +566,10 @@ namespace sd::model_builders {
         }
 
         auto create_vae = [&]() -> std::shared_ptr<VAE> {
-            if (sd_version_is_ltxav(version)) {
+            if (sd_version_is_sana_sprint(version)) {
+                return std::make_shared<Sana::DCAERunner>(ctx.backends.runtime_backend(SDBackendModule::VAE),
+                                                          tensor_storage_map, "first_stage_model", weight_manager);
+            } else if (sd_version_is_ltxav(version)) {
                 return std::make_shared<LTXVideoVAE>(ctx.backends.runtime_backend(SDBackendModule::VAE),
                                                      tensor_storage_map,
                                                      "first_stage_model",
