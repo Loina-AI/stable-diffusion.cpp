@@ -101,6 +101,8 @@ std::vector<std::pair<std::string, float>> split_quotation_attention(
 
 sd_progress_cb_t sd_get_progress_callback();
 void* sd_get_progress_callback_data();
+sd_decode_cb_t sd_get_decode_callback();
+void* sd_get_decode_callback_data();
 
 void sd_begin_preview_pass(int total_steps);
 sd_preview_cb_t sd_get_preview_callback();

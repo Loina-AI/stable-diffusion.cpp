@@ -174,6 +174,17 @@ sd::Tensor<float> process_tiles_2d(const sd::Tensor<float>& input,
 
     const int num_tiles = static_cast<int>(tiles_x.size() * tiles_y.size());
     int tile_count      = 0;
+    auto preview_cb = decode && input.dim() == 4 ? sd_get_decode_callback() : nullptr;
+    void* preview_data = sd_get_decode_callback_data();
+    const int preview_width = std::min(256, output_width);
+    const int preview_height = std::max(1, output_height * preview_width / output_width);
+    std::vector<uint8_t> preview;
+    if (preview_cb != nullptr) {
+        preview.resize(static_cast<size_t>(preview_width) * preview_height * 4, 0);
+        if (!preview_cb(0, num_tiles, nullptr, preview_data)) {
+            return {};
+        }
+    }
     if (!silent) {
         LOG_VERBOSE("num tiles : %d, %d ", static_cast<int>(tiles_x.size()), static_cast<int>(tiles_y.size()));
         LOG_VERBOSE("processing %i tiles", num_tiles);
@@ -199,6 +210,28 @@ sd::Tensor<float> process_tiles_2d(const sd::Tensor<float>& input,
                                x.overlap_before * scale_out, x.overlap_after * scale_out,
                                y.overlap_before * scale_out, y.overlap_after * scale_out);
             ++tile_count;
+            if (preview_cb != nullptr && output.shape()[2] == 3 && output.shape()[3] == 1) {
+                // Reuse the decoded pixels; previews never run another VAE pass.
+                for (int py = 0; py < preview_height; ++py) {
+                    const int sy = py * output_height / preview_height;
+                    for (int px = 0; px < preview_width; ++px) {
+                        const int sx = px * output_width / preview_width;
+                        const size_t p = (static_cast<size_t>(py) * preview_width + px) * 4;
+                        if (sx >= x.offset * scale_out && sx < x.offset * scale_out + output_tile_width &&
+                            sy >= y.offset * scale_out && sy < y.offset * scale_out + output_tile_height) {
+                            preview[p + 3] = 255;
+                        }
+                        for (int c = 0; c < 3; ++c) {
+                            const float value = output[static_cast<int64_t>(c) * output_width * output_height + sy * output_width + sx];
+                            preview[p + c] = static_cast<uint8_t>(std::clamp((value + 1.f) * 127.5f, 0.f, 255.f));
+                        }
+                    }
+                }
+                sd_image_t image = {static_cast<uint32_t>(preview_width), static_cast<uint32_t>(preview_height), 4, preview.data()};
+                if (!preview_cb(tile_count, num_tiles, &image, preview_data)) {
+                    return {};
+                }
+            }
             if (!silent) {
                 pretty_progress(tile_count, num_tiles, (ggml_time_ms() - t1) / 1000.0f);
             }

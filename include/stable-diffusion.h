@@ -465,6 +465,7 @@ struct ggml_tensor;
 typedef void (*sd_log_cb_t)(enum sd_log_level_t level, const char* text, void* data);
 typedef void (*sd_progress_cb_t)(int step, int steps, float time, void* data);
 typedef void (*sd_preview_cb_t)(int step, int frame_count, sd_image_t* frames, bool is_noisy, void* data);
+typedef bool (*sd_decode_cb_t)(int tile, int tiles, const sd_image_t* preview, void* data);
 
 typedef struct {
     int sample_pass;
@@ -474,6 +475,10 @@ typedef bool (*sd_graph_eval_callback_t)(struct ggml_tensor* t, bool ask, void* 
 
 SD_API void sd_set_log_callback(sd_log_cb_t sd_log_cb, void* data);
 SD_API void sd_set_progress_callback(sd_progress_cb_t cb, void* data);
+// Tiled image decoding previews use RGBA thumbnails with transparent unfinished regions.
+// The first callback has tile=0 and preview=NULL. Image data is valid only during the call.
+// Return false to stop decoding at the tile boundary.
+SD_API void sd_set_decode_callback(sd_decode_cb_t cb, void* data);
 // In each sampling pass, a positive interval previews every Nth denoiser step, while a
 // negative interval previews only completed logical step -interval. Zero previews the final
 // completed step of the first sampling pass (base-resolution or high-noise).
