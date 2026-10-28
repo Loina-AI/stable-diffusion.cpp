@@ -469,6 +469,7 @@ SDVersion ModelLoader::get_sd_version() const {
     bool has_output_block_71         = false;
     bool has_attn_1024               = false;
     bool has_dc_ae_decoder           = false;
+    bool has_distilled_guidance      = false;
 
     for (auto& [name, tensor_storage] : tensor_storage_map) {
         if (contains(name, "decoder.up_blocks.5.0.attn.to_qkv_multiscale.0.proj_in.weight")) {
@@ -494,6 +495,9 @@ SDVersion ModelLoader::get_sd_version() const {
         }
         if (tensor_storage.name.find("model.diffusion_model.nerf_final_layer_conv.") != std::string::npos) {
             return VERSION_CHROMA_RADIANCE;
+        }
+        if (tensor_storage.name.find("distilled_guidance_layer.in_proj.weight") != std::string::npos) {
+            has_distilled_guidance = true;
         }
         if (tensor_storage.name.find("model.diffusion_model.joint_blocks.") != std::string::npos) {
             return VERSION_SD3;
@@ -684,6 +688,9 @@ SDVersion ModelLoader::get_sd_version() const {
     }
 
     if (is_flux && !is_flux2) {
+        if (has_distilled_guidance) {
+            return VERSION_CHROMA;
+        }
         if (context_ebedding_weight.ne[0] == 3584) {
             return VERSION_LONGCAT;
         } else {
