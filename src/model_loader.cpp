@@ -4,6 +4,7 @@
 #include <cinttypes>
 #include <cstdarg>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <mutex>
@@ -333,13 +334,13 @@ bool ModelLoader::init_from_safetensors_index_file(const std::string& file_path,
         }
     }
 
-    std::ifstream index_file(file_path);
+    std::ifstream index_file(std::filesystem::u8path(file_path));
     const auto index = nlohmann::json::parse(index_file);
     for (const auto& entry : index.at("weight_map").items()) {
         const auto expected = (std::filesystem::u8path(file_path).parent_path() /
                                std::filesystem::u8path(entry.value().get<std::string>()))
                                   .lexically_normal();
-        bool found = false;
+        bool found          = false;
         for (const auto& shard : parsed_tensor_names_) {
             if (std::filesystem::u8path(shard.first).lexically_normal() == expected) {
                 found = shard.second.count(entry.key()) != 0;
@@ -437,6 +438,20 @@ bool ModelLoader::init_from_diffusers_file(const std::string& file_path, const s
 
 SDVersion ModelLoader::get_sd_version() const {
     TensorStorage token_embedding_weight, input_block_weight, context_ebedding_weight;
+
+    if (tensor_storage_map.count("model.diffusion_model.perceiver.latent_queries")) {
+        return VERSION_FIBO2;
+    }
+
+    if (tensor_storage_map.find("model.diffusion_model.emb_in.image.weight") != tensor_storage_map.end() &&
+        tensor_storage_map.find("model.diffusion_model.txt_mode_blocks.0.q_proj.weight") != tensor_storage_map.end()) {
+        return VERSION_FLUX3;
+    }
+
+    if (tensor_storage_map.count("model.diffusion_model.video_embedder.weight") &&
+        tensor_storage_map.count("model.diffusion_model.shared_block_modulation.weight")) {
+        return VERSION_MOSS_IMAGE;
+    }
 
     bool has_multiple_encoders = false;
     bool is_unet               = false;
@@ -1153,7 +1168,7 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
                         return;
                     }
                 } else if (!mmapped) {
-                    file.open(file_path, std::ios::binary);
+                    file.open(std::filesystem::u8path(file_path), std::ios::binary);
                     if (!file.is_open()) {
                         LOG_ERROR("failed to open '%s'", file_path.c_str());
                         failed = true;
