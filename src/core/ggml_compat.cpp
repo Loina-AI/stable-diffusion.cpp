@@ -159,7 +159,13 @@ ggml_status ggml_backend_graph_compute_async_range(ggml_backend_t backend, ggml_
     if (first == last) {
         return GGML_STATUS_SUCCESS;
     }
-    auto view = ggml_graph_view(graph, first, last);
+    // ggml_graph_view is private and hidden by shared ggml builds.
+    ggml_cgraph view{};
+    view.n_nodes          = last - first;
+    view.nodes            = graph->nodes + first;
+    view.use_counts       = graph->use_counts;
+    view.visited_hash_set = graph->visited_hash_set;
+    view.order            = graph->order;
     return ggml_backend_graph_compute_async(backend, &view);
 }
 #endif
