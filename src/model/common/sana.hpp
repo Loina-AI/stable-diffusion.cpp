@@ -123,7 +123,7 @@ namespace Sana {
             x          = std::dynamic_pointer_cast<PaddedLinear>(blocks["conv_inverted"])->forward(ctx, image_to_tokens(g, x));
             x          = tokens_to_image(g, ggml_silu(g, x), h, w);
             x          = std::dynamic_pointer_cast<Conv2d_grouped>(blocks["conv_depth"])->forward(ctx, x);
-            auto parts = ggml_ext_chunk(g, x, 2, 2);
+            auto parts = ggml_ext_chunk(ctx, x, 2, 2);
             x          = ggml_mul(g, parts[0], ggml_silu(g, parts[1]));
             x          = std::dynamic_pointer_cast<PaddedLinear>(blocks["conv_point"])->forward(ctx, image_to_tokens(g, x));
             x          = tokens_to_image(g, x, h, w);

@@ -23,6 +23,7 @@ struct TensorStorage {
     bool is_i64                 = false;
     bool is_int8_tensorwise     = false;
     bool is_gemma_norm_shifted  = false;
+    int w4_convrot_kind         = 0;
     bool int8_convrot           = false;
     int int8_convrot_group_size = 0;
     int64_t ne[SD_MAX_DIMS]     = {1, 1, 1, 1, 1};
@@ -50,6 +51,10 @@ struct TensorStorage {
             n *= ne[i];
         }
         return n;
+    }
+
+    int64_t logical_ne0() const {
+        return ne[0] * (w4_convrot_kind ? 2 : 1);
     }
 
     int64_t nbytes() const {

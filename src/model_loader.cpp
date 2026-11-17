@@ -526,7 +526,7 @@ SDVersion ModelLoader::get_sd_version() const {
         }
         if (tensor_storage.name.find("model.diffusion_model.transformer_blocks.0.img_mod.1.weight") != std::string::npos) {
             auto img_in = tensor_storage_map.find("model.diffusion_model.img_in.weight");
-            if (img_in != tensor_storage_map.end() && img_in->second.ne[0] == 128) {
+            if (img_in != tensor_storage_map.end() && img_in->second.logical_ne0() == 128) {
                 return VERSION_MAGE_FLOW;
             }
             if (tensor_storage_map.find("model.diffusion_model.time_text_embed.addition_t_embedding.weight") != tensor_storage_map.end()) {
@@ -585,7 +585,18 @@ SDVersion ModelLoader::get_sd_version() const {
             return VERSION_LTXAV;
         }
         if (tensor_storage.name.find("model.diffusion_model.video_patch_proj.weight") != std::string::npos &&
-            tensor_storage_map.find("model.diffusion_model.audio_patch_proj.weight") != tensor_storage_map.end()) {
+            tensor_storage_map.find("model.diffusion_model.condition_proj.weight") != tensor_storage_map.end()) {
+            if (tensor_storage_map.count("model.diffusion_model.audio_patch_proj.weight") == 0) {
+                return VERSION_MINIMAX_H3_IMAGE;
+            }
+            // The connector is shared with H3 video; the single-frame VAE identifies P-H3.
+            auto decoder = tensor_storage_map.find("first_stage_model.decoder.proj_out.weight");
+            if (decoder == tensor_storage_map.end()) {
+                decoder = tensor_storage_map.find("vae.decoder.proj_out.weight");
+            }
+            if (decoder != tensor_storage_map.end() && decoder->second.ne[1] == 768) {
+                return VERSION_P_H3_IMAGE;
+            }
             return VERSION_MINIMAX_H3;
         }
         if (name == "model.diffusion_model.y_embedder.layer_pool.weight" &&
@@ -649,7 +660,7 @@ SDVersion ModelLoader::get_sd_version() const {
             tensor_storage.name.find("unet.up_blocks.2.attentions.1") != std::string::npos) {
             has_output_block_71 = true;
             if (tensor_storage.name.find("model.diffusion_model.output_blocks.7.1.transformer_blocks.0.attn1.to_k.weight") != std::string::npos) {
-                if (tensor_storage.ne[0] == 1024)
+                if (tensor_storage.logical_ne0() == 1024)
                     has_attn_1024 = true;
             }
         }
@@ -710,16 +721,16 @@ SDVersion ModelLoader::get_sd_version() const {
         if (has_distilled_guidance) {
             return VERSION_CHROMA;
         }
-        if (context_ebedding_weight.ne[0] == 3584) {
+        if (context_ebedding_weight.logical_ne0() == 3584) {
             return VERSION_LONGCAT;
         } else {
-            if (input_block_weight.ne[0] == 384) {
+            if (input_block_weight.logical_ne0() == 384) {
                 return VERSION_FLUX_FILL;
             }
-            if (input_block_weight.ne[0] == 128) {
+            if (input_block_weight.logical_ne0() == 128) {
                 return VERSION_FLUX_CONTROLS;
             }
-            if (input_block_weight.ne[0] == 196) {
+            if (input_block_weight.logical_ne0() == 196) {
                 return VERSION_FLEX_2;
             }
             return VERSION_FLUX;
@@ -1640,7 +1651,8 @@ bool ModelLoader::load_tensors(std::map<std::string, ggml_tensor*>& tensors,
 
 bool ModelLoader::tensor_should_be_converted(const TensorStorage& tensor_storage, ggml_type type) const {
     const std::string& name = tensor_storage.name;
-    if (tensor_storage.is_int8_tensorwise) {
+    if (tensor_storage.is_int8_tensorwise || tensor_storage.w4_convrot_kind != 0 ||
+        ends_with(name, ".weight_codebook") || ends_with(name, ".weight_s_channel") || ends_with(name, ".weight_s_rel")) {
         return false;
     }
     if (type != GGML_TYPE_COUNT) {

@@ -55,7 +55,7 @@ namespace Sana {
         }
 
         ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* t) {
-            auto x = ggml_ext_timestep_embedding(ctx->ggml_ctx, t, 256, 10000);
+            auto x = ggml_ext_timestep_embedding(ctx, t, 256, 10000);
             x      = std::dynamic_pointer_cast<PaddedLinear>(blocks["linear_1"])->forward(ctx, x);
             return std::dynamic_pointer_cast<PaddedLinear>(blocks["linear_2"])->forward(ctx, ggml_silu(ctx->ggml_ctx, x));
         }
@@ -109,7 +109,7 @@ namespace Sana {
         ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x, ggml_tensor* t, ggml_tensor* context, ggml_tensor* mask, int64_t height, int64_t width) {
             auto g     = ctx->ggml_ctx;
             auto table = ggml_add(g, params["scale_shift_table"], ggml_reshape_2d(g, t, dim, 6));
-            auto parts = ggml_ext_chunk(g, table, 6, 1);
+            auto parts = ggml_ext_chunk(ctx, table, 6, 1);
             auto h     = modulated_norm(g, x, parts[0], parts[1]);
             h          = std::dynamic_pointer_cast<Attention>(blocks["attn1"])->forward(ctx, h, nullptr, nullptr);
             x          = ggml_add(g, x, ggml_mul(g, h, parts[2]));
@@ -165,7 +165,7 @@ namespace Sana {
                 sd::ggml_graph_cut::mark_graph_cut(x, "sana.transformer_blocks." + std::to_string(i), "hidden");
             }
             auto table = ggml_add(g, params["scale_shift_table"], embedded);
-            auto parts = ggml_ext_chunk(g, table, 2, 1);
+            auto parts = ggml_ext_chunk(ctx, table, 2, 1);
             x          = modulated_norm(g, x, parts[0], parts[1]);
             x          = std::dynamic_pointer_cast<PaddedLinear>(blocks["proj_out"])->forward(ctx, x);
             return tokens_to_image(g, x, height, width);

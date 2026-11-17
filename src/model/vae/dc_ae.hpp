@@ -144,14 +144,14 @@ namespace Sana {
             for (const auto& name : {"to_q", "to_k", "to_v"}) {
                 qkv.push_back(std::dynamic_pointer_cast<Linear>(blocks[name])->forward(ctx, tokens));
             }
-            auto projected      = tokens_to_image(g, ggml_ext_vec_concat(g, qkv, 0), h, w);
+            auto projected      = tokens_to_image(g, ggml_ext_vec_concat(ctx, qkv, 0), h, w);
             auto scale          = std::dynamic_pointer_cast<Conv2d_grouped>(blocks["to_qkv_multiscale.0.proj_in"])->forward(ctx, projected);
             scale               = std::dynamic_pointer_cast<GroupedPointwise>(blocks["to_qkv_multiscale.0.proj_out"])->forward(ctx, scale);
             projected           = ggml_concat(g, projected, scale, 2);
             const int64_t heads = 2 * channels / head_dim;
             projected           = ggml_reshape_4d(g, image_to_tokens(g, projected), 3 * head_dim, heads, h * w, n);
             projected           = ggml_cont(g, ggml_permute(g, projected, 0, 2, 1, 3));
-            auto parts          = ggml_ext_chunk(g, projected, 3, 0);
+            auto parts          = ggml_ext_chunk(ctx, projected, 3, 0);
             for (auto& part : parts) {
                 part = ggml_cont(g, ggml_permute(g, part, 0, 2, 1, 3));
                 part = ggml_reshape_3d(g, part, 2 * channels, h * w, n);

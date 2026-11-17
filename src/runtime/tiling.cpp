@@ -227,8 +227,14 @@ sd::Tensor<float> process_tiles_2d(const sd::Tensor<float>& input,
                         }
                     }
                 }
-                sd_image_t image = {static_cast<uint32_t>(preview_width), static_cast<uint32_t>(preview_height), 4, preview.data()};
-                if (!preview_cb(tile_count, num_tiles, &image, preview_data)) {
+                const int64_t shape[] = {4, preview_width, preview_height};
+                sd_tensor_t* image = sd_tensor_create(SD_TENSOR_U8, 3, shape, preview.data(), preview.size());
+                if (image == nullptr) {
+                    return {};
+                }
+                const bool proceed = preview_cb(tile_count, num_tiles, image, preview_data);
+                sd_tensor_free(image);
+                if (!proceed) {
                     return {};
                 }
             }
